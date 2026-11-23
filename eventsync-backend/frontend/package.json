@@ -1,9 +1,0 @@
-{
-  "name": "eventsync-api-adapter",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "tsc --strict --target ES2022 --module ESNext --lib ES2022,DOM --outDir .test-build eventsync-api.ts && node --test eventsync-api.test.mjs"
-  },
-  "devDependencies": { "typescript": "5.9.3" }
-}
