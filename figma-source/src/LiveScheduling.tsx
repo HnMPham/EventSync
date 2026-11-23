@@ -18,6 +18,9 @@ export function LiveScheduling({friends,groups,user}:{friends:Friend[];groups:Gr
   const [polls,setPolls] = useState<Poll[]>([]);
   const [selected,setSelected] = useState<Poll|null>(null);
   const [recommendations,setRecommendations] = useState<PollRecommendation[]>([]);
+  const [preview,setPreview] = useState<PollRecommendation[]>([]);
+  const [previewLoading,setPreviewLoading] = useState(false);
+  const [previewError,setPreviewError] = useState('');
   const [err,setErr] = useState('');
   const [message,setMessage] = useState('');
   const [working,setWorking] = useState(false);
@@ -37,6 +40,26 @@ export function LiveScheduling({friends,groups,user}:{friends:Friend[];groups:Gr
   const [manualEnd,setManualEnd] = useState(nowPlusHours(25));
   const [draft,setDraft] = useState(false);
   const [filter,setFilter] = useState('all');
+  // Recalculate automatically when invitees, group, time window or duration changes.
+  useEffect(()=>{
+    let cancelled=false;
+    const timer=window.setTimeout(async()=>{
+      const start=new Date(windowStart),end=new Date(windowEnd);
+      if(!(start<end)||!Number.isFinite(start.getTime())||start.getTime()<Date.now()-60000 ||
+         end.getTime()-start.getTime()>14*86400000 || duration<30 || duration>480 || duration%30!==0){
+        if(!cancelled){setPreview([]);setPreviewError('Choose a valid future window (up to 14 days) and a duration in 30-minute increments.');setPreviewLoading(false)}
+        return;
+      }
+      if(!cancelled){setPreviewLoading(true);setPreviewError('')}
+      try{
+        const result=await api.previewMeetingTimes({windowStart:start.toISOString(),windowEnd:end.toISOString(),
+          durationMinutes:duration,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,groupId:groupId||null,inviteeIds:invitedIds});
+        if(!cancelled){setPreview(result.suggestions);setPreviewLoading(false)}
+      }catch(e){if(!cancelled){setPreview([]);setPreviewError(errText(e));setPreviewLoading(false)}}
+    },350);
+    return()=>{cancelled=true;window.clearTimeout(timer)};
+  },[groupId,invitedIds,windowStart,windowEnd,duration]);
+
   const refresh = useCallback(async (activeId?:string) => {
     const result=await api.polls('all');setPolls(result);
     if(activeId) {
@@ -73,13 +96,27 @@ export function LiveScheduling({friends,groups,user}:{friends:Friend[];groups:Gr
     setSelected(created.event);setCode(created.invitationCode);
     setMessage('Event saved in MySQL. Copy your invitation link before leaving this page.');
     await refresh(created.event.id);
+    if(['DRAFT','COLLECTING'].includes(created.event.status)){
+      const ranked=await api.recommendPollTimes(created.event.id);setRecommendations(ranked.suggestions);
+    }
   });
   const selectPoll=(id:string)=>action(async()=>{
-    setSelected(await api.poll(id));setRecommendations([]);setCode('');
+    const poll=await api.poll(id);setSelected(poll);setRecommendations([]);setCode('');
+    if(['DRAFT','COLLECTING'].includes(poll.status)){
+      const result=await api.recommendPollTimes(id);setRecommendations(result.suggestions);
+    }
   });
   const doPoll = (command:()=>Promise<Poll>,notice:string) =>action(async()=>{
     if(!selected)return;
     const result=await command();setSelected(result);setMessage(notice);await refresh(result.id);
+  });
+  const removePastPoll = () => action(async()=>{
+    if(!selected)return;
+    const id=selected.id;
+    if(!window.confirm('Permanently delete this scheduling event and its related invitations and availability? This cannot be undone.'))return;
+    await api.deletePastPoll(id);
+    setSelected(null);setRecommendations([]);setCode('');
+    await refresh();setMessage('Scheduling event deleted.');
   });
   const submitManual=()=>{
     if(!selected)return;
@@ -140,6 +177,20 @@ export function LiveScheduling({friends,groups,user}:{friends:Friend[];groups:Gr
         </div>
         <label className={caption}>Invite friends (optional)</label>
         <div className="flex gap-2 flex-wrap">{friends.length===0?<span className="text-xs opacity-70">Add friends to invite them directly.</span>:friends.map(f=><label key={f.user.id} className="flex items-center gap-1 border rounded-lg px-2 py-1 text-xs"><input type="checkbox" checked={invitedIds.includes(f.user.id)} onChange={()=>setInvitedIds(prev=>prev.includes(f.user.id)?prev.filter(id=>id!==f.user.id):[...prev,f.user.id])}/>{f.user.name}</label>)}</div>
+        <div className="rounded-xl border p-3 space-y-2" style={{borderColor:'var(--color-lagoon-100)',background:'var(--color-lagoon-50)'}}>
+          <h4 className="font-bold text-sm">Best meeting times · Live calendar overlap</h4>
+          <p className="text-xs opacity-75">Automatically checks your calendar, selected friends and every member of the chosen group. Saved free blocks count; busy overrides, Outlook busy periods and existing meetings block time. Unmarked time is not assumed free.</p>
+          {previewLoading&&<p role="status" className="text-xs">Checking calendars…</p>}
+          {previewError&&<p role="alert" className="text-xs text-red-800">{previewError}</p>}
+          {!previewLoading&&!previewError&&preview.length===0&&<p className="text-xs opacity-70">No times found in this window.</p>}
+          {!previewLoading&&preview.length>0&&<div className="space-y-2 max-h-72 overflow-y-auto">{preview.slice(0,10).map((slot,i)=><div key={slot.start} className="flex justify-between gap-2 items-start border rounded-lg p-2 bg-white">
+            <div className="text-sm"><strong>#{i+1} · {displayDate(slot.start)}</strong><p className="text-xs opacity-75">{displayDate(slot.end)} · {slot.availableCount}/{slot.totalParticipants} free ({Math.round(slot.availableCount/slot.totalParticipants*100)}%)</p>
+              <p className="text-xs opacity-70">Free: {slot.availableUsers.map(u=>u.name).join(', ')||'No confirmed availability'}</p>
+              {slot.unavailableUsers.length>0&&<p className="text-xs opacity-70">Not confirmed free: {slot.unavailableUsers.map(u=>u.name).join(', ')}</p>}
+            </div>
+            {slot.allAvailable&&<span className="text-xs font-semibold">All free</span>}
+          </div>)}</div>}
+        </div>
         <label className="flex gap-2 text-sm items-center"><input type="checkbox" checked={draft} onChange={e=>setDraft(e.target.checked)}/>Save as draft instead of publishing immediately</label>
         <button disabled={working||!title.trim()} className={`${button} text-white w-full`} style={{background:'var(--color-lagoon)'}} onClick={()=>void makePoll()}>Create Scheduling Event</button>
       </section>
@@ -161,13 +212,14 @@ export function LiveScheduling({friends,groups,user}:{friends:Friend[];groups:Gr
       <div className="flex flex-wrap justify-between gap-2 items-start"><div>
         <h3 className="text-lg font-bold">{selected.title}</h3>
         <p className="text-sm opacity-70">{selected.status} · {displayDate(selected.windowStart)} to {displayDate(selected.windowEnd)}</p>
-        {selected.finalizedStart&&<p className="font-bold text-emerald-800">Final meeting: {displayDate(selected.finalizedStart)}</p>}
+        {selected.status==='FINALIZED'&&selected.finalizedStart&&<p className="font-bold text-emerald-800">Final meeting: {displayDate(selected.finalizedStart)}</p>}
       </div><button className={button} onClick={()=>setSelected(null)}>Close</button></div>
       {selected.organizerId===user.id&&<div className="flex flex-wrap gap-2">
         {selected.status==='DRAFT'&&<button className={button} disabled={working} onClick={()=>void doPoll(()=>api.publishPoll(selected.id),'Scheduling opened.')}>Publish</button>}
         {['DRAFT','COLLECTING'].includes(selected.status)&&<button className={button} disabled={working} onClick={()=>void rotateCode()}>Generate new invitation link</button>}
         {selected.status==='FINALIZED'&&<button className={button} disabled={working} onClick={()=>void doPoll(()=>api.reopenPoll(selected.id),'Reopened.')}>Reopen</button>}
         {selected.status!=='CANCELLED'&&<button className={button} disabled={working} onClick={()=>void doPoll(()=>api.cancelPoll(selected.id),'Event cancelled.')}>Cancel</button>}
+        {(selected.status==='CANCELLED'||new Date(selected.finalizedEnd??selected.windowEnd).getTime()<Date.now())&&<button className={`${button} text-red-700 border-red-300`} disabled={working} onClick={()=>void removePastPoll()}>Delete scheduling event</button>}
       </div>}
       {code&&selected.organizerId===user.id&&<div className="rounded-lg bg-yellow-50 p-3 text-sm"><p className="font-semibold mb-1">Invitation code (shown only now): {code}</p><button className={button} onClick={()=>void copyLink()}>Copy invitation link</button></div>}
       {selected.organizerId===user.id&&['DRAFT','COLLECTING'].includes(selected.status)&&<div className="flex flex-wrap gap-2 items-end">
@@ -192,8 +244,8 @@ export function LiveScheduling({friends,groups,user}:{friends:Friend[];groups:Gr
       {selected.organizerId===user.id && selected.status==='COLLECTING'&&<div className="space-y-3">
         <button disabled={working} className={button} onClick={()=>void fetchRecommendations()}>Calculate optimal meeting times</button>
         {recommendations.length>0&&<div className="grid gap-2 md:grid-cols-2">{recommendations.slice(0,12).map(rec=><div key={rec.start} className="p-3 border rounded-xl flex items-center justify-between gap-2">
-          <div className="text-sm"><p className="font-semibold">{displayDate(rec.start)}</p><p className="text-xs opacity-70">{rec.availableCount}/{rec.totalParticipants} available</p></div>
-          <button disabled={working} className={button} onClick={()=>void doPoll(()=>api.finalizePoll(selected.id,rec.start),'Meeting finalized!')}>Finalize</button>
+          <div className="text-sm"><p className="font-semibold">{displayDate(rec.start)}</p><p className="text-xs opacity-70">{rec.availableCount}/{rec.totalParticipants} available</p><p className="text-xs opacity-70">Free: {rec.availableUsers.map(u=>u.name).join(', ')||'None confirmed'}</p></div>
+          <button disabled={working} className={button} onClick={()=>void doPoll(()=>api.finalizePoll(selected.id,rec.start),'Meeting finalized! It now appears in Events for you and accepted participants.')}>Finalize</button>
         </div>)}</div>}
       </div>}
       {selected.status==='FINALIZED'&&<button disabled={working} className={button} onClick={()=>void downloadCalendar()}>Download calendar file (.ics)</button>}

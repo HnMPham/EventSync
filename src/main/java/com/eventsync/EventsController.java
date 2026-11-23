@@ -33,20 +33,20 @@ class EventsController {
     @GetMapping List<Event> list(Authentication a,@RequestParam(defaultValue="upcoming") String view,@RequestParam(required=false) String groupId){
         String condition=switch(view){
             case "upcoming" -> "e.cancelled=FALSE AND e.ends_at>? AND (e.organizer_id=? OR EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=? AND i.response='ACCEPTED'))";
-            case "invitations" -> "e.cancelled=FALSE AND e.ends_at>? AND e.organizer_id<>? AND EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=? AND i.response='PENDING')";
+            case "invitations" -> "e.window_start IS NULL AND e.cancelled=FALSE AND e.ends_at>? AND e.organizer_id<>? AND EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=? AND i.response='PENDING')";
             case "organized" -> "e.cancelled=FALSE AND e.organizer_id=?";
             default -> throw ApiException.bad("view must be upcoming, invitations, or organized");
         };
         Object[] args=view.equals("organized")?new Object[]{a.getName()}:new Object[]{Db.ts(Instant.now()),a.getName(),a.getName()};
         if(groupId!=null && !groupId.isBlank()){
             requireGroupMember(a.getName(),groupId);
-            return db.sql.query("SELECT e.* FROM events e WHERE e.window_start IS NULL AND e.group_id=? AND ("+condition+") ORDER BY e.starts_at LIMIT 500",(r,n)->event(r,a.getName()),prepend(groupId,args));
+            return db.sql.query("SELECT e.* FROM events e WHERE (e.window_start IS NULL OR e.status='FINALIZED') AND e.group_id=? AND ("+condition+") ORDER BY e.starts_at LIMIT 500",(r,n)->event(r,a.getName()),prepend(groupId,args));
         }
-        return db.sql.query("SELECT e.* FROM events e WHERE e.window_start IS NULL AND ("+condition+") ORDER BY e.starts_at LIMIT 500",(r,n)->event(r,a.getName()),args);
+        return db.sql.query("SELECT e.* FROM events e WHERE (e.window_start IS NULL OR e.status='FINALIZED') AND ("+condition+") ORDER BY e.starts_at LIMIT 500",(r,n)->event(r,a.getName()),args);
     }
     @GetMapping("/{id}") Event get(Authentication a,@PathVariable String id){return visible(a.getName(),id);}
     private Event visible(String me,String id){
-        return db.sql.query("SELECT e.* FROM events e WHERE e.id=? AND e.window_start IS NULL AND (e.organizer_id=? OR EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=?))",(r,n)->event(r,me),id,me,me).stream().findFirst().orElseThrow(ApiException::missing);
+        return db.sql.query("SELECT e.* FROM events e WHERE e.id=? AND (e.window_start IS NULL OR e.status='FINALIZED') AND (e.organizer_id=? OR EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=? AND (e.window_start IS NULL OR i.response='ACCEPTED')))",(r,n)->event(r,me),id,me,me).stream().findFirst().orElseThrow(ApiException::missing);
     }
     private static Object[] prepend(Object head,Object[] tail){Object[] all=new Object[tail.length+1];all[0]=head;System.arraycopy(tail,0,all,1,tail.length);return all;}
     private void requireGroupMember(String user,String group){
@@ -78,6 +78,7 @@ class EventsController {
     Event update(Authentication a,@PathVariable String id,@Valid @RequestBody EventInput r){
         db.sql.queryForList("SELECT id FROM events WHERE id=? FOR UPDATE",String.class,id);
         var old=visible(a.getName(),id); if(!old.organizerId().equals(a.getName())) throw ApiException.forbidden();
+        if(isSchedulingEvent(id))throw ApiException.bad("Manage finalized scheduling meetings in Find Meeting Time");
         if(old.cancelled()) throw ApiException.bad("Event is cancelled");
         validate(r);var recipients=recipients(a.getName(),r);
         db.sql.update("UPDATE events SET title=?,description=?,location=?,starts_at=?,ends_at=?,time_zone=?,group_id=? WHERE id=?",r.title().trim(),r.description(),r.location(),Db.ts(r.start()),Db.ts(r.end()),r.timeZone(),r.groupId()==null||r.groupId().isBlank()?null:r.groupId(),id);
@@ -89,16 +90,21 @@ class EventsController {
     @DeleteMapping("/{id}") @Transactional
     Map<String,Boolean> cancel(Authentication a,@PathVariable String id){
         var e=visible(a.getName(),id);if(!e.organizerId().equals(a.getName()))throw ApiException.forbidden();
+        if(isSchedulingEvent(id))throw ApiException.bad("Cancel scheduling meetings in Find Meeting Time");
         db.sql.update("UPDATE events SET cancelled=TRUE WHERE id=?",id);return Map.of("ok",true);
     }
     @PostMapping("/{id}/respond") @Transactional
     Event respond(Authentication a,@PathVariable String id,@Valid @RequestBody Response r){
         db.sql.queryForList("SELECT id FROM events WHERE id=? FOR UPDATE",String.class,id);
         var e=visible(a.getName(),id);
+        if(isSchedulingEvent(id))throw ApiException.bad("Scheduling meeting responses are closed after finalization");
         if(e.organizerId().equals(a.getName())) throw ApiException.forbidden();
         if(e.cancelled()||!e.end().isAfter(Instant.now()))throw ApiException.bad("Event is cancelled or has ended");
         if(db.sql.update("UPDATE invitations SET response=? WHERE event_id=? AND user_id=?",r.response().name(),id,a.getName())==0)throw ApiException.forbidden();
         return visible(a.getName(),id);
+    }
+    private boolean isSchedulingEvent(String id){
+        return Boolean.TRUE.equals(db.sql.queryForObject("SELECT window_start IS NOT NULL FROM events WHERE id=?",Boolean.class,id));
     }
     private void validate(EventInput r){
         ZoneId.of(r.timeZone());

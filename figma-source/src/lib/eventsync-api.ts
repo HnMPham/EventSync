@@ -168,11 +168,14 @@ export function createEventSyncApi(baseUrl: string) {
     respondToPoll: (id: string, accept: boolean) => request<Poll>(`/scheduling-events/${encodeURIComponent(id)}/respond`, "POST", { accept }),
     submitPollAvailability: (id: string, slots: Interval[]) => request<Poll>(`/scheduling-events/${encodeURIComponent(id)}/availability`, "PUT", { slots }),
     prefillPollWeekly: (id: string) => request<Poll>(`/scheduling-events/${encodeURIComponent(id)}/prefill-my-weekly`, "POST"),
+    previewMeetingTimes: (input: {windowStart:string;windowEnd:string;durationMinutes:number;timeZone:string;groupId?:string|null;inviteeIds:string[]}) =>
+      request<PollRecommendations>('/scheduling-events/preview','POST',input),
     recommendPollTimes: (id: string) => request<PollRecommendations>(`/scheduling-events/${encodeURIComponent(id)}/recommendations`),
     finalizePoll: (id: string, start: string) => request<Poll>(`/scheduling-events/${encodeURIComponent(id)}/finalize`, "POST", { start }),
     reopenPoll: (id: string) => request<Poll>(`/scheduling-events/${encodeURIComponent(id)}/reopen`, "POST"),
     cancelPoll: (id: string) => request<Poll>(`/scheduling-events/${encodeURIComponent(id)}/cancel`, "POST"),
     deletePoll: (id: string) => request(`/scheduling-events/${encodeURIComponent(id)}`, "DELETE"),
+    deletePastPoll: (id: string) => request(`/scheduling-events/${encodeURIComponent(id)}/past`, "DELETE"),
     async downloadPollCalendar(id: string) {
       const response = await fetch(`${root}/scheduling-events/${encodeURIComponent(id)}/calendar.ics`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},

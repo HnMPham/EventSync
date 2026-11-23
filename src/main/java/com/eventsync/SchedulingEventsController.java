@@ -94,6 +94,26 @@ class SchedulingEventsController {
             (r,n)->r.getString(1),args.toArray());
         return ids.stream().map(id->detail(a.getName(),id)).toList();
     }
+    record PreviewInput(@NotNull Instant windowStart,@NotNull Instant windowEnd,
+        @Min(30) @Max(480) int durationMinutes,@NotBlank String timeZone,
+        String groupId,@Size(max=150) Set<@NotBlank String> inviteeIds) {}
+    @PostMapping("/preview") @Transactional(readOnly=true)
+    SchedulingService.Recommendations preview(Authentication a,@Valid @RequestBody PreviewInput input){
+        var people=new LinkedHashSet<String>();people.add(a.getName());
+        if(input.groupId()!=null && !input.groupId().isBlank()){
+            groups.requireMember(a.getName(),input.groupId());
+            people.addAll(db.sql.queryForList("SELECT user_id FROM group_members WHERE group_id=?",String.class,input.groupId()));
+        }
+        for(String id:input.inviteeIds()==null?Set.<String>of():input.inviteeIds()){
+            if(!id.equals(a.getName())){
+                String[] pair=FriendsController.pair(a.getName(),id);
+                Integer accepted=db.sql.queryForObject("SELECT COUNT(*) FROM friendships WHERE low_id=? AND high_id=? AND status='ACCEPTED'",Integer.class,pair[0],pair[1]);
+                if(accepted==null||accepted==0)throw ApiException.forbidden();
+            }
+            people.add(id);
+        }
+        return scheduling.preview(people,input.windowStart(),input.windowEnd(),input.durationMinutes(),input.timeZone());
+    }
     @GetMapping("/{id}") Poll get(Authentication a,@PathVariable String id){return detail(a.getName(),id);}
     @PostMapping @ResponseStatus(HttpStatus.CREATED) @Transactional
     Created create(Authentication a,@Valid @RequestBody PollInput input){
@@ -104,7 +124,19 @@ class SchedulingEventsController {
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",id,owner,input.title().trim(),blank(input.description()),blank(input.location()),input.timeZone(),
             input.draft()?"DRAFT":"COLLECTING",Db.ts(input.windowStart()),Db.ts(input.windowEnd()),input.durationMinutes(),Crypto.hash(code),input.groupId(),
             input.responseDeadline()==null?null:Db.ts(input.responseDeadline()));
-        for(String guest:safe(input.inviteeIds()))addInvite(id,owner,guest);
+        if(input.groupId()!=null){
+            for(String member:db.sql.queryForList("SELECT user_id FROM group_members WHERE group_id=?",String.class,input.groupId()))
+                if(!member.equals(owner))addInvite(id,owner,member);
+        }
+        for(String guest:safe(input.inviteeIds())){
+            if(!guest.equals(owner)){
+                String[] pair=FriendsController.pair(owner,guest);
+                Integer accepted=db.sql.queryForObject("SELECT COUNT(*) FROM friendships WHERE low_id=? AND high_id=? AND status='ACCEPTED'",Integer.class,pair[0],pair[1]);
+                if(accepted==null||accepted==0)throw ApiException.forbidden();
+                Integer already=db.sql.queryForObject("SELECT COUNT(*) FROM invitations WHERE event_id=? AND user_id=?",Integer.class,id,guest);
+                if(already==null||already==0)addInvite(id,owner,guest);
+            }
+        }
         return new Created(detail(owner,id),code);
     }
     @PutMapping("/{id}") @Transactional
@@ -256,6 +288,9 @@ class SchedulingEventsController {
         if(input.start().isBefore(poll.windowStart())||end.isAfter(poll.windowEnd()))throw ApiException.bad("Chosen time is outside the event window");
         if(db.sql.update("UPDATE events SET starts_at=?,ends_at=?,status='FINALIZED' WHERE id=? AND status='COLLECTING'",
             Db.ts(input.start()),Db.ts(end),id)==0)throw ApiException.bad("Event was already finalized");
+        // The existing events row is the canonical calendar event. /api/events includes
+        // finalized scheduling rows for the organizer and ACCEPTED invitees only.
+        // Do not insert a second event or send calendar invitations to DECLINED/PENDING users.
         notifications.toParticipants(id,a.getName(),"FINALIZED","Meeting time finalized for "+poll.title());
         return detail(a.getName(),id);
     }
@@ -279,6 +314,19 @@ class SchedulingEventsController {
     @DeleteMapping("/{id}") @Transactional
     Map<String,Boolean> delete(Authentication a,@PathVariable String id){
         requireOrganizer(a.getName(),id);
+        db.sql.update("DELETE FROM notifications WHERE event_id=?",id);
+        db.sql.update("DELETE FROM events WHERE id=? AND window_start IS NOT NULL",id);
+        return Map.of("ok",true);
+    }
+    /** Organizers may remove cancelled scheduling events immediately, or completed past scheduling events. */
+    @DeleteMapping("/{id}/past") @Transactional
+    Map<String,Boolean> deletePast(Authentication a,@PathVariable String id){
+        db.sql.queryForObject("SELECT id FROM events WHERE id=? FOR UPDATE",String.class,id);
+        requireOrganizer(a.getName(),id);
+        Poll poll=detail(a.getName(),id);
+        Instant effectiveEnd=poll.finalizedEnd()!=null?poll.finalizedEnd():poll.windowEnd();
+        if(!"CANCELLED".equals(poll.status()) && !effectiveEnd.isBefore(Instant.now()))
+            throw ApiException.bad("Only cancelled or past scheduling events can be deleted");
         db.sql.update("DELETE FROM notifications WHERE event_id=?",id);
         db.sql.update("DELETE FROM events WHERE id=? AND window_start IS NOT NULL",id);
         return Map.of("ok",true);

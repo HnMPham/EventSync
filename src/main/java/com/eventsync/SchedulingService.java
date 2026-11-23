@@ -19,44 +19,64 @@ class SchedulingService {
     record Recommendations(String eventId,int participantCount,int slotMinutes,List<Suggestion> suggestions) {}
     record Candidate(Instant start,Instant end,int count,List<Db.PublicUser> yes,List<Db.PublicUser> no) {}
 
+    // Existing poll recommendations and new live previews share the same scoring rules.
     Recommendations recommend(String eventId){
-        var rows=db.sql.queryForList("SELECT window_start,window_end,duration_minutes,status,time_zone FROM events WHERE id=?",eventId);
+        var rows=db.sql.queryForList("SELECT organizer_id,group_id,window_start,window_end,duration_minutes,status,time_zone FROM events WHERE id=?",eventId);
         if(rows.isEmpty())throw ApiException.missing();
-        var r=rows.getFirst();String status=(String)r.get("status");
-        if(!Set.of("DRAFT","COLLECTING").contains(status))throw ApiException.bad("Event is no longer collecting availability");
-        Instant start=((java.sql.Timestamp)r.get("window_start")).toInstant(),end=((java.sql.Timestamp)r.get("window_end")).toInstant();
-        int duration=((Number)r.get("duration_minutes")).intValue();
-        String organizer=db.sql.queryForObject("SELECT organizer_id FROM events WHERE id=?",String.class,eventId);
-        var participants=new LinkedHashSet<String>();participants.add(organizer);
+        var r=rows.getFirst();
+        if(!Set.of("DRAFT","COLLECTING").contains((String)r.get("status")))throw ApiException.bad("Event is no longer collecting availability");
+        String owner=(String)r.get("organizer_id");
+        var participants=new LinkedHashSet<String>();participants.add(owner);
         participants.addAll(db.sql.queryForList("SELECT user_id FROM invitations WHERE event_id=? AND response<>'DECLINED'",String.class,eventId));
-        if(participants.size()>150)throw ApiException.bad("Events are currently limited to 150 participants");
+        // Group members are included automatically, whether or not they have responded yet.
+        if(r.get("group_id")!=null)participants.addAll(db.sql.queryForList("SELECT gm.user_id FROM group_members gm WHERE gm.group_id=? AND NOT EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=? AND i.user_id=gm.user_id AND i.response='DECLINED')",String.class,r.get("group_id"),eventId));
+        return calculate(eventId,participants,((java.sql.Timestamp)r.get("window_start")).toInstant(),
+            ((java.sql.Timestamp)r.get("window_end")).toInstant(),((Number)r.get("duration_minutes")).intValue(),(String)r.get("time_zone"));
+    }
+    Recommendations preview(Set<String> users,Instant start,Instant end,int minutes,String timeZone){
+        return calculate(null,users,start,end,minutes,timeZone);
+    }
+    private Recommendations calculate(String eventId,Set<String> participants,Instant start,Instant end,int minutes,String timeZone){
+        if(participants.isEmpty()||participants.size()>150)throw ApiException.bad("Choose between 1 and 150 participants");
+        if(start==null||end==null||!start.isBefore(end)||Duration.between(start,end).toDays()>14)
+            throw ApiException.bad("Choose a date window of up to 14 days");
+        if(minutes<30||minutes>480||minutes%30!=0)throw ApiException.bad("Meeting duration must be a multiple of 30 minutes");
+        ZoneId zone;
+        try{zone=ZoneId.of(timeZone);}catch(Exception ex){throw ApiException.bad("Invalid time zone");}
         var names=new HashMap<String,Db.PublicUser>();
-        var available=new HashMap<String,List<Interval>>();var busy=new HashMap<String,List<Interval>>();var committed=new HashMap<String,List<Interval>>();var overrides=new HashMap<String,List<Override>>();
+        var available=new HashMap<String,List<Interval>>();var busy=new HashMap<String,List<Interval>>();
+        var committed=new HashMap<String,List<Interval>>();var overrides=new HashMap<String,List<Override>>();
         for(var user:participants){
             var u=db.user(user);names.put(user,new Db.PublicUser(user,u.name()));
-            available.put(user,db.sql.query("SELECT starts_at,ends_at FROM event_availability WHERE event_id=? AND user_id=? ORDER BY starts_at",
-                (rr,n)->new Interval(rr.getTimestamp(1).toInstant(),rr.getTimestamp(2).toInstant()),eventId,user));
-            var busyRanges=new ArrayList<>(db.sql.query("SELECT starts_at,ends_at FROM imported_busy WHERE user_id=? AND starts_at<? AND ends_at>?",
+            // A poll-specific submission takes precedence over the reusable calendar.
+            boolean submitted=eventId!=null && Boolean.TRUE.equals(db.sql.queryForObject(
+                "SELECT COUNT(*)>0 FROM event_submissions WHERE event_id=? AND user_id=?",Boolean.class,eventId,user));
+            String availabilitySql=submitted
+                ? "SELECT starts_at,ends_at FROM event_availability WHERE event_id=? AND user_id=? ORDER BY starts_at"
+                : "SELECT starts_at,ends_at FROM availability WHERE user_id=? AND starts_at<? AND ends_at>? ORDER BY starts_at";
+            List<Interval> free=submitted
+                ? db.sql.query(availabilitySql,(rr,n)->new Interval(rr.getTimestamp(1).toInstant(),rr.getTimestamp(2).toInstant()),eventId,user)
+                : db.sql.query(availabilitySql,(rr,n)->new Interval(rr.getTimestamp(1).toInstant(),rr.getTimestamp(2).toInstant()),user,Db.ts(end),Db.ts(start));
+            available.put(user,free);
+            busy.put(user,db.sql.query("SELECT starts_at,ends_at FROM imported_busy WHERE user_id=? AND starts_at<? AND ends_at>?",
                 (rr,n)->new Interval(rr.getTimestamp(1).toInstant(),rr.getTimestamp(2).toInstant()),user,Db.ts(end),Db.ts(start)));
             committed.put(user,db.sql.query("SELECT e.starts_at,e.ends_at FROM events e WHERE e.status='FINALIZED' AND e.cancelled=FALSE AND e.starts_at<? AND e.ends_at>? AND (e.organizer_id=? OR EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=? AND i.response='ACCEPTED'))",
                 (rr,n)->new Interval(rr.getTimestamp(1).toInstant(),rr.getTimestamp(2).toInstant()),Db.ts(end),Db.ts(start),user,user));
-            busy.put(user,busyRanges);
             overrides.put(user,db.sql.query("SELECT starts_at,ends_at,status FROM manual_overrides WHERE user_id=? AND starts_at<? AND ends_at>?",
                 (rr,n)->new Override(new Interval(rr.getTimestamp(1).toInstant(),rr.getTimestamp(2).toInstant()),rr.getString(3)),user,Db.ts(end),Db.ts(start)));
         }
-        List<Candidate> all=new ArrayList<>();
-        Duration length=Duration.ofMinutes(duration);
+        List<Candidate> all=new ArrayList<>();Duration length=Duration.ofMinutes(minutes);
         for(Instant cursor=start;!cursor.plus(length).isAfter(end);cursor=cursor.plus(Duration.ofMinutes(30))){
             var slot=new Interval(cursor,cursor.plus(length));
             List<Db.PublicUser> yes=new ArrayList<>(),no=new ArrayList<>();
             for(var id:participants){
-                if(isAvailable(slot,available.get(id),busy.get(id),overrides.get(id),committed.get(id)))yes.add(names.get(id));else no.add(names.get(id));
+                if(isAvailable(slot,available.get(id),busy.get(id),overrides.get(id),committed.get(id)))yes.add(names.get(id));
+                else no.add(names.get(id));
             }
             yes.sort(Comparator.comparing(Db.PublicUser::name));no.sort(Comparator.comparing(Db.PublicUser::name));
             all.add(new Candidate(slot.start,slot.end,yes.size(),yes,no));
         }
         all.sort(Comparator.comparingInt(Candidate::count).reversed().thenComparing(Candidate::start));
-        ZoneId zone=ZoneId.of((String)r.get("time_zone"));
         var best=all.stream().limit(20).map(c->new Suggestion(c.start,c.end,c.start.atZone(zone).toString(),c.count(),participants.size(),c.yes(),c.no(),c.count()==participants.size())).toList();
         return new Recommendations(eventId,participants.size(),30,best);
     }
@@ -66,7 +86,9 @@ class SchedulingService {
         return isAvailable(slot,choices,busy,overrides,List.of());
     }
     static boolean isAvailable(Interval slot,List<Interval> choices,List<Interval> busy,List<Override> overrides,List<Interval> committed){
-        if(!covered(slot,choices))return false;
+        var explicitFree=overrides.stream().filter(o->"AVAILABLE".equals(o.status)).map(Override::range).toList();
+        var positive=new ArrayList<>(choices);positive.addAll(explicitFree);
+        if(!covered(slot,positive))return false;
         if(committed.stream().anyMatch(slot::overlaps))return false;
         SortedSet<Instant> boundaries=new TreeSet<>();boundaries.add(slot.start);boundaries.add(slot.end);
         for(var b:busy){if(b.overlaps(slot)){if(b.start.isAfter(slot.start))boundaries.add(b.start);if(b.end.isBefore(slot.end))boundaries.add(b.end);}}
