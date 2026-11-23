@@ -1,0 +1,68 @@
+erDiagram
+    direction LR
+    USERS ||--o{ EVENTS : organizes
+    USERS ||--o{ INVITATIONS : invited
+    EVENTS ||--o{ INVITATIONS : participants
+    USERS ||--o{ EVENT_AVAILABILITY : submits
+    EVENTS ||--o{ EVENT_AVAILABILITY : collects
+    USERS ||--o{ IMPORTED_BUSY : calendar_sync
+    USERS ||--o{ MANUAL_OVERRIDES : edits
+    EVENT_GROUPS ||--o{ GROUP_MEMBERS : includes
+    USERS ||--o{ GROUP_MEMBERS : belongs
+    EVENT_GROUPS o|--o{ EVENTS : hosts
+
+    USERS {
+        varchar id PK
+        varchar email UK
+        varchar name
+        varchar password_hash
+        varchar time_zone
+    }
+    EVENT_GROUPS {
+        varchar id PK
+        varchar owner_id FK
+        varchar name
+        varchar description
+    }
+    GROUP_MEMBERS {
+        varchar group_id PK,FK
+        varchar user_id PK,FK
+        varchar role
+    }
+    EVENTS {
+        varchar id PK
+        varchar organizer_id FK
+        varchar group_id FK
+        varchar title
+        varchar status
+        timestamp window_start
+        timestamp window_end
+        int duration_minutes
+        timestamp starts_at
+        timestamp ends_at
+    }
+    INVITATIONS {
+        varchar event_id PK,FK
+        varchar user_id PK,FK
+        varchar response
+    }
+    EVENT_AVAILABILITY {
+        varchar event_id PK,FK
+        varchar user_id PK,FK
+        timestamp starts_at PK
+        timestamp ends_at
+    }
+    IMPORTED_BUSY {
+        varchar id PK
+        varchar user_id FK
+        varchar calendar_id
+        timestamp starts_at
+        timestamp ends_at
+    }
+    MANUAL_OVERRIDES {
+        varchar id PK
+        varchar user_id FK
+        varchar status
+        timestamp starts_at
+        timestamp ends_at
+    }

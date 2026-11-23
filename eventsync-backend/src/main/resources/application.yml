@@ -1,0 +1,24 @@
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/eventsync?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true}
+    username: ${DB_USER:eventsync}
+    password: ${DB_PASSWORD}
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+  sql:
+    init:
+      mode: never
+app:
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:8080}
+  frontend-url: ${FRONTEND_URL:http://localhost:8080}
+  token-encryption-key: ${TOKEN_ENCRYPTION_KEY}
+  microsoft:
+    tenant: ${MS_TENANT:common}
+    client-id: ${MS_CLIENT_ID:}
+    client-secret: ${MS_CLIENT_SECRET:}
+    redirect-uri: ${MS_REDIRECT_URI:http://localhost:8080/api/outlook/callback}

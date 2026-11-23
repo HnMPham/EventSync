@@ -1,0 +1,77 @@
+classDiagram
+    direction LR
+    class AuthController {
+        +signup()
+        +login()
+        +logout()
+    }
+    class ProfileController {
+        +update()
+        +changeEmail()
+        +changePassword()
+    }
+    class GroupsController {
+        +create()
+        +add()
+        +changeRole()
+        +remove()
+    }
+    class SchedulingEventsController {
+        +create()
+        +publish()
+        +invite()
+        +join()
+        +submit()
+        +recommendations()
+        +finalizeEvent()
+    }
+    class SchedulingService {
+        +recommend(eventId)
+        +isAvailable(slot, choices, busy, overrides)
+    }
+    class AvailabilityController {
+        +get()
+        +replace()
+        +matches()
+    }
+    class AvailabilityOverridesController {
+        +create()
+        +delete()
+    }
+    class OutlookController {
+        +start()
+        +syncDefault()
+    }
+    class OutlookService {
+        +start()
+        +sync()
+        +syncDefault()
+    }
+    class MicrosoftClient {
+        +authorize()
+        +redeem()
+        +pages()
+    }
+    class Notifications {
+        +send()
+        +toParticipants()
+    }
+    class Db {
+        +sql : JdbcTemplate
+        +user(id)
+    }
+
+    SchedulingEventsController --> SchedulingService
+    SchedulingEventsController --> GroupsController
+    SchedulingEventsController --> Notifications
+    SchedulingEventsController --> Db
+    SchedulingService --> Db
+    GroupsController --> Db
+    AuthController --> Db
+    ProfileController --> Db
+    AvailabilityController --> Db
+    AvailabilityOverridesController --> Db
+    OutlookController --> OutlookService
+    OutlookService --> MicrosoftClient
+    OutlookService --> Db
+    Notifications --> Db

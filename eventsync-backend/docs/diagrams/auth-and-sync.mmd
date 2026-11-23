@@ -1,0 +1,58 @@
+erDiagram
+    direction LR
+    USERS ||--o{ SESSIONS : authenticates
+    USERS ||--o| OUTLOOK_CONNECTIONS : links
+    USERS ||--o{ OAUTH_PENDING : authorizes
+    USERS ||--o{ CALENDAR_SYNCS : tracks
+    USERS ||--o{ AVAILABILITY : weekly_selection
+    USERS ||--o{ NOTIFICATIONS : receives
+    EVENTS ||--o{ NOTIFICATIONS : triggers
+    EVENTS ||--o{ EVENT_SUBMISSIONS : tracks
+    USERS ||--o{ EVENT_SUBMISSIONS : submits
+
+    USERS {
+        varchar id PK
+        varchar email UK
+    }
+    EVENTS {
+        varchar id PK
+        varchar status
+    }
+    SESSIONS {
+        varchar token_hash PK
+        varchar user_id FK
+        timestamp expires_at
+    }
+    OUTLOOK_CONNECTIONS {
+        varchar user_id PK,FK
+        text token_blob
+        timestamp last_synced_at
+    }
+    OAUTH_PENDING {
+        varchar state_hash PK
+        varchar user_id FK
+        timestamp expires_at
+    }
+    CALENDAR_SYNCS {
+        varchar user_id FK
+        varchar calendar_id
+        timestamp range_start
+        timestamp range_end
+    }
+    AVAILABILITY {
+        varchar user_id PK,FK
+        timestamp starts_at PK
+        timestamp ends_at
+    }
+    EVENT_SUBMISSIONS {
+        varchar event_id PK,FK
+        varchar user_id PK,FK
+        timestamp submitted_at
+    }
+    NOTIFICATIONS {
+        varchar id PK
+        varchar event_id FK
+        varchar user_id FK
+        varchar category
+        timestamp read_at
+    }

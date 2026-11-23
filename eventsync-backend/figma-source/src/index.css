@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:wght@400;500;600&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  /* ── Dark Indigo (#525B98) scale ── */
+  --color-lagoon-700: #2A3168;
+  --color-lagoon-600: #3D4580;
+  --color-lagoon:     #525B98;
+  --color-lagoon-400: #7179B0;
+  --color-lagoon-300: #9297E8;
+  --color-lagoon-200: #B4B8F2;
+  --color-lagoon-100: #D4D6F8;
+  --color-lagoon-50:  #EDEEF8;
+
+  /* ── Light Blue (#BCEAF3) scale ── */
+  --color-misty-50:  #EDF8FC;
+  --color-misty-100: #D4F1F9;
+  --color-misty-200: #BCEAF3;
+  --color-misty-300: #80CDD8;
+  --color-misty-400: #4EB0C0;
+  --color-misty-500: #2A8FA0;
+
+  /* ── Teal (#59C2B3) / Mint (#9BE3CE) scale ── */
+  --color-sage-600: #2A7A6A;
+  --color-sage-500: #3E9888;
+  --color-sage:     #59C2B3;
+  --color-sage-300: #7ECFC3;
+  --color-sage-200: #9BE3CE;
+  --color-sage-100: #C0EEE5;
+  --color-sage-50:  #E0F8F3;
+
+  /* ── Pink (#F5A6CD) scale ── */
+  --color-blush:     #E070AA;
+  --color-blush-300: #EE90C0;
+  --color-blush-200: #F5A6CD;
+  --color-blush-100: #FAC8E3;
+  --color-blush-50:  #FFF0F8;
+
+  /* ── Off-white (#FFF9FB) / page surfaces ── */
+  --color-cream-50:  #FFF9FB;
+  --color-cream:     #FFF4F8;
+  --color-cream-200: #EFE4EC;
+  --color-cream-300: #E0D0DA;
+
+  /* ── Pale Yellow (#FFF59D) ── */
+  --color-yellow:     #FFF59D;
+  --color-yellow-200: #FFFBCF;
+  --color-yellow-dark: #C4A800;
+
+  /* ── Rosewood (reused for accent) ── */
+  --color-rosewood:     #525B98;
+  --color-rosewood-300: #9297E8;
+  --color-rosewood-50:  #EDEEF8;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: 'Outfit', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-lagoon-200); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-lagoon-300); }
+
+.no-select { user-select: none; }
