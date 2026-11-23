@@ -1,0 +1,6 @@
+# Optional additional override: use the included, precompiled Java JAR.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.prebuilt

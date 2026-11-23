@@ -1,0 +1,8 @@
+# Optional local Figma/Vite development overlay: React on localhost:8443.
+# Reverse proxy /api from Vite to Spring on localhost:8080.
+services:
+  api:
+    environment:
+      ALLOWED_ORIGINS: http://localhost:8443
+      FRONTEND_URL: http://localhost:8443
+      MS_REDIRECT_URI: http://localhost:8443/api/outlook/callback

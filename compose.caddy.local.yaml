@@ -1,0 +1,18 @@
+# For private access: localhost:8090 -> Caddy, optionally HTTPS via Tailscale Serve.
+# Set FRONTEND_URL=https://your-host.your-tailnet.ts.net in .env once configured.
+services:
+  api:
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8090}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8090}
+      MS_REDIRECT_URI: ${MS_REDIRECT_URI:-http://localhost:8090/api/outlook/callback}
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8090:80"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./figma-dist:/srv/figma:ro
