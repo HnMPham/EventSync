@@ -1,0 +1,10 @@
+{
+  "description": "EventSync simplifies event planning for students and friends by helping them find the best meeting times, manage invitations, and track availability.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

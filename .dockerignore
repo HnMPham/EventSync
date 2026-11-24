@@ -1,0 +1,25 @@
+# Keep the Java Docker build context small, and never send local credentials.
+.git
+.github
+.env
+.env.*
+!.env.example
+.dockerignore
+.gitignore
+backups
+*.sql
+*.sql.gz
+*.bak
+*.pem
+*.key
+*.p12
+*.pfx
+node_modules
+**/node_modules
+figma-source
+figma-dist
+frontend
+docs
+target
+app.jar
+*.zip

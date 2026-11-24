@@ -30,3 +30,9 @@ This archive is NOT a one-click upgrade of an installed EventSync VM. Back up DB
 
 ## Local demo
 With Docker and Compose installed, run `bash Launch-EventSync.sh` on Linux or `Launch-EventSync.bat` on Windows. First launch requires image and npm dependency downloads. Starts at http://localhost:8090, and uses a distinct local MySQL volume.
+
+## Repository publication improvements
+- Main README updated with local Docker launcher steps, correct localhost ports, migrations V1–V6 and release candidate limitations.
+- GitHub Actions tests now include the React production build and Linux shell script syntax check.
+- Git ignore and Docker ignore exclusions expanded for local generated files and credentials.
+- Hidden configuration and workflow files are included in the source ZIP; use Git rather than the GitHub browser uploader to commit dotfiles.

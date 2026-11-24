@@ -1,0 +1,40 @@
+# Secrets and mutable runtime data
+.env
+.env.*
+!.env.example
+!**/.env.example
+backups/
+*.sql.gz
+*.sql.dump
+*.bak
+.eventsync-persistence-check.json
+# Compiled/generated code
+target/
+app.jar
+figma-source/node_modules/
+figma-source/dist/
+figma-dist/*
+!figma-dist/.gitkeep
+frontend/node_modules/
+frontend/.test-build/
+# Development/editor artifacts
+.admin-patch-backup-*/
+.groups-patch-backup-*/
+__pycache__/
+*.pyc
+.idea/
+.DS_Store
+*.iml
+
+# Additional local demo, build and temporary files
+node_modules/
+figma-source/.vite/
+*.log
+*.sql
+*.sqlite
+*.db
+.env.local-demo
+*.pem
+*.key
+*.p12
+*.pfx
