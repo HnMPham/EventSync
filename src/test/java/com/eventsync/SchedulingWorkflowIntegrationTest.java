@@ -39,7 +39,7 @@ class SchedulingWorkflowIntegrationTest {
         send("POST","/api/groups/"+groupId+"/members",bob,Map.of("userId",outsider.id()),403);
         Instant start=Instant.parse("2030-01-07T09:00:00Z");
         var input=Map.of("title","Team planning","description","Demo","location","Library","windowStart",start.toString(),
-            "windowEnd",start.plusSeconds(10800).toString(),"durationMinutes",60,"timeZone","UTC","groupId",groupId,"inviteeIds",List.of(bob.id()));
+            "windowEnd",start.plusSeconds(10800).toString(),"durationMinutes",60,"timeZone","UTC","groupId",groupId);
         var created=send("POST","/api/scheduling-events",alice,input,201);
         String id=created.path("event").path("id").asText(),code=created.path("invitationCode").asText();
         send("GET","/api/scheduling-events/"+id,outsider,null,404);

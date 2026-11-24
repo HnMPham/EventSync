@@ -63,7 +63,7 @@ test('matches and event invitations use backend IDs and expected request shapes'
   const api = createEventSyncApi('https://api.example/api');
   respond({ slots: [], highestCount: 0 });
   await api.matches('2030-01-07', 'America/Chicago', ['friend-id']);
-  assert.deepEqual(JSON.parse(calls[0].options.body), { weekStart: '2030-01-07', timeZone: 'America/Chicago', friendIds: ['friend-id'] });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { weekStart: '2030-01-07', timeZone: 'America/Chicago', friendIds: ['friend-id'], groupId: null });
   respond({ id: 'event-id' }); await api.respondToEvent('event-id', false);
   assert.deepEqual(JSON.parse(calls[1].options.body), { response: 'DECLINED' });
 });

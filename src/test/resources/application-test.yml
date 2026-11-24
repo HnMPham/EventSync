@@ -9,3 +9,4 @@ app:
   microsoft:
     client-id: test-client
     client-secret: test-secret
+  allowed-origins: http://localhost:5173,http://localhost:8080

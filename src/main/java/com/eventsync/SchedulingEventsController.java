@@ -44,6 +44,10 @@ class SchedulingEventsController {
         var rows=db.sql.queryForList("SELECT organizer_id,group_id,status FROM events WHERE id=?",id);
         if(rows.isEmpty())throw ApiException.missing();
         var row=rows.getFirst();
+        // Draft proposals are private to their organizer, even when group members
+        // have already been provisionally added to the invitations table.
+        if("DRAFT".equals(row.get("status")) && !user.equals(row.get("organizer_id")))
+            throw ApiException.missing();
         if(user.equals(row.get("organizer_id")))return;
         Integer invited=db.sql.queryForObject("SELECT COUNT(*) FROM invitations WHERE event_id=? AND user_id=?",Integer.class,id,user);
         if(invited!=null&&invited>0)return;
@@ -88,8 +92,8 @@ class SchedulingEventsController {
         String needle="%"+query.trim().toLowerCase(Locale.ROOT).replace("!","!!").replace("%","!%").replace("_","!_")+"%";
         args.add(needle);
         var ids=db.sql.query("SELECT e.id FROM events e WHERE e.window_start IS NOT NULL AND " +
-            "(e.organizer_id=? OR EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=?) " +
-            "OR (e.status<>'DRAFT' AND EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=?))) " + condition +
+            "(e.organizer_id=? OR (e.status<>'DRAFT' AND (EXISTS(SELECT 1 FROM invitations i WHERE i.event_id=e.id AND i.user_id=?) " +
+            "OR EXISTS(SELECT 1 FROM group_members gm WHERE gm.group_id=e.group_id AND gm.user_id=?)))) " + condition +
             " AND LOWER(e.title) LIKE ? ESCAPE '!' ORDER BY e.window_start DESC LIMIT 200",
             (r,n)->r.getString(1),args.toArray());
         return ids.stream().map(id->detail(a.getName(),id)).toList();
