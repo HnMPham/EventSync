@@ -17,6 +17,7 @@ export function LiveAdmin() {
   const [error,setError]=useState('');
   const [message,setMessage]=useState('');
   const [working,setWorking]=useState(false);
+  const [userNumbers,setUserNumbers]=useState<Record<string,string>>({});
   const [inbox,setInbox]=useState<SupportRequest[]>([]);
   const [ticketKindFilter,setTicketKindFilter]=useState<'ALL'|'ISSUE'|'REQUEST'>('ALL');
   const [ticketStatusFilter,setTicketStatusFilter]=useState<'ALL'|'OPEN'|'IN_PROGRESS'|'RESOLVED'|'REJECTED'>('ALL');
@@ -25,6 +26,7 @@ export function LiveAdmin() {
   const refresh=useCallback(async()=>{
     const [s,g,u]=await Promise.all([api.adminSummary(),api.adminGroups(),api.adminUsers()]);
     setSummary(s);setGroups(g);setUsers(u);
+    setUserNumbers(prev=>Object.fromEntries(u.map(person=>[person.id,prev[person.id]??String(person.discriminator)])));
     const [tickets,accounts]=await Promise.all([api.adminSupport(),api.publishers()]);
     setInbox(tickets);setPublishers(accounts);
     setOrgNames(previous=>Object.fromEntries(accounts.map(account=>[account.id,previous[account.id]??account.organizationName??''])));
@@ -44,6 +46,21 @@ export function LiveAdmin() {
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       {([['Registered users',summary?.users],['Groups',summary?.groups],['Events',summary?.events],['Pending invitations',summary?.pendingInvitations]] as const).map(([label,value])=>
         <div className="bg-white rounded-xl border p-4" key={label}><div className="text-xs opacity-70">{label}</div><div className="text-2xl font-bold">{value??'...'}</div></div>)}
+    </div>
+    <div className="bg-white rounded-xl border p-4 space-y-3">
+      <h3 className="font-bold">User account management</h3>
+      <p className="text-xs opacity-70">Edit the public username#number (not the internal account UUID). Account deletion is permanent and removes meetings, public events, and groups owned by that account.</p>
+      {users.length===0?<p className="text-sm">No users found.</p>:users.map(person=><div key={person.id} className="flex flex-wrap items-center justify-between gap-3 border rounded-lg p-3 text-sm">
+        <div className="min-w-44 flex-1"><div className="font-semibold">{person.name} {person.systemAdmin&&<span className="text-xs">· System admin</span>}</div><div className="text-xs opacity-70 break-all">{person.email} · {person.username}#{String(person.discriminator).padStart(6,'0')}</div></div>
+        <label className="text-xs">Public ID #
+          <input aria-label={`Public ID number for ${person.name}`} className={`${field} w-28 block`} type="number" min={1} max={999999} step={1} value={userNumbers[person.id]??String(person.discriminator)} onChange={e=>setUserNumbers(prev=>({...prev,[person.id]:e.target.value}))}/>
+        </label>
+        <button className={button} disabled={working||!/^\d+$/.test(userNumbers[person.id]??'')||Number(userNumbers[person.id])<1||Number(userNumbers[person.id])>999999||Number(userNumbers[person.id])===person.discriminator} onClick={()=>void run(()=>api.adminChangeUserNumber(person.id,Number(userNumbers[person.id])),'Public ID updated')}>Save ID</button>
+        <button className={`${button} text-red-800 border-red-300`} disabled={working} onClick={()=>{
+          if(window.confirm(`PERMANENTLY delete ${person.name} (${person.email})? Their owned events, announcements and groups will also be deleted. This cannot be undone.`))
+            void run(()=>api.adminDeleteUser(person.id),'Account deleted');
+        }}>Delete account</button>
+      </div>)}
     </div>
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <div className="bg-white rounded-xl border p-4 space-y-3">

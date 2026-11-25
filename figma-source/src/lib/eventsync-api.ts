@@ -1,7 +1,7 @@
 /** Copy into the Figma Make React project's src/lib/. No client secrets belong here. */
 export type User = { id: string; name: string; email: string; timeZone: string; systemAdmin: boolean };
 export type AdminSummary = { users:number; groups:number; events:number; pendingInvitations:number };
-export type AdminUser = { id:string; name:string; email:string; systemAdmin:boolean; groupCount:number };
+export type AdminUser = { id:string; name:string; email:string; systemAdmin:boolean; groupCount:number; username:string; discriminator:number };
 export type AdminGroup = { id:string; name:string; description:string; ownerId:string; ownerName:string; eventCount:number;
   members:{id:string;name:string;email:string;role:"ADMIN"|"MEMBER"}[] };
 export type PublicEvent = { id:string;title:string;description:string;location:string;start:string;end:string;timeZone:string;cancelled:boolean;createdBy:string;interestedCount:number;interested:boolean };
@@ -119,6 +119,8 @@ export function createEventSyncApi(baseUrl: string) {
     publishers: () => request<Publisher[]>("/community/admin/publishers"),
     setPublisher: (id:string,approved:boolean,organizationName:string) => request<Publisher>(`/community/admin/publishers/${encodeURIComponent(id)}`,"PUT",{approved,organizationName}),
     adminUsers: () => request<AdminUser[]>("/admin/users"),
+    adminChangeUserNumber: (id:string,discriminator:number) => request<AdminUser>(`/admin/users/${encodeURIComponent(id)}/discriminator`,"PUT",{discriminator}),
+    adminDeleteUser: (id:string) => request<{ok:boolean}>(`/admin/users/${encodeURIComponent(id)}`,"DELETE"),
     adminGroups: () => request<AdminGroup[]>("/admin/groups"),
     adminUpdateGroup: (id:string,name:string,description:string) => request<AdminGroup>(`/admin/groups/${encodeURIComponent(id)}`,"PUT",{name,description}),
     adminAddMember: (id:string,userId:string) => request<AdminGroup>(`/admin/groups/${encodeURIComponent(id)}/members`,"POST",{userId}),

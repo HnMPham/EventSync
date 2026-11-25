@@ -472,7 +472,17 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
   },[selectedGroupId,reloadKey]);
   const [userAvail, setUserAvail] = useState<Set<string>>(new Set());
   const [busyPaint,setBusyPaint]=useState<Set<string>>(new Set());
+  // Calendar entry style is a UI preference, scoped to this account and browser.
+  // The eraser style assumes all displayed slots are available unless marked busy.
+  const [entryStyle,setEntryStyle]=useState<'STANDARD'|'ERASE_BUSY'>(()=>{
+    try { return window.localStorage.getItem(`eventsync:calendar-entry-style:${userId}`)==='ERASE_BUSY' ? 'ERASE_BUSY' : 'STANDARD'; }
+    catch { return 'STANDARD'; }
+  });
   const [paintTool,setPaintTool]=useState<'AVAILABLE'|'BUSY'>('AVAILABLE');
+  useEffect(()=>{
+    try { window.localStorage.setItem(`eventsync:calendar-entry-style:${userId}`,entryStyle); }
+    catch { /* Private browsing can disable storage. */ }
+  },[entryStyle,userId]);
   const dragVisited=useRef<Set<string>>(new Set());
   const [matchesByBlock,setMatchesByBlock] = useState<Record<string,string[]>>({});
   const [calendarError,setCalendarError] = useState("");
@@ -524,15 +534,22 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
       ]);
       if(id!==loadCounter.current)return;
       setValidSlotStarts(new Set(slots.map(s=>new Date(s.start).toISOString())));
-      setUserAvail(new Set(week.selectedStarts.map(slotToKey)));
-      setBusyPaint(new Set(week.overrides.filter(o=>o.status==='BUSY').flatMap(o=>slots.filter(s=>new Date(s.start)<new Date(o.end)&&new Date(s.end)>new Date(o.start)).map(s=>slotToKey(s.start)))));
+      const savedAvailable=new Set(week.selectedStarts.map(slotToKey));
+      const savedBusy=new Set(week.overrides.filter(o=>o.status==='BUSY').flatMap(o=>slots.filter(s=>new Date(s.start)<new Date(o.end)&&new Date(s.end)>new Date(o.start)).map(s=>slotToKey(s.start))));
+      setBusyPaint(savedBusy);
+      if(entryStyle==='ERASE_BUSY'){
+        // Eraser style is white/free by default; blue cells represent time erased.
+        // Persist the initialized baseline so friends see genuinely available slots.
+        setUserAvail(new Set(slots.map(s=>slotToKey(s.start)).filter(key=>!savedBusy.has(key))));
+        dirtyRef.current=true;
+      } else setUserAvail(savedAvailable);
       const byBlock:Record<string,string[]>={};
       for(const slot of matches.slots)byBlock[slotToKey(slot.start)] = slot.availableFriends.map(f=>f.id);
       setMatchesByBlock(byBlock);
       setOutlookConnected(outlook.connected);
     } catch(err){if(id===loadCounter.current)setCalendarError(errorMessage(err));}
     finally {if(id===loadCounter.current)setLoadingWeek(false);}
-  },[monday,selectedGroupId,groups,friends,slotToKey]);
+  },[monday,selectedGroupId,groups,friends,slotToKey,entryStyle]);
   useEffect(()=>{void reloadCalendar();return ()=>{loadCounter.current++}},[reloadCalendar]);
   useEffect(()=>{
     if(!dirtyRef.current || loadingWeek)return;
@@ -560,6 +577,7 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
     if(tool==='BUSY'){
       setBusyPaint(prev=>{const next=new Set(prev);if(state)next.add(key);else next.delete(key);return next});
       if(state)setUserAvail(prev=>{const next=new Set(prev);next.delete(key);return next});
+      else if(entryStyle==='ERASE_BUSY')setUserAvail(prev=>{const next=new Set(prev);next.add(key);return next});
     }else{
       setUserAvail(prev=>{const next=new Set(prev);if(state)next.add(key);else next.delete(key);return next});
       if(state)setBusyPaint(prev=>{const next=new Set(prev);next.delete(key);return next});
@@ -612,16 +630,17 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
     if(loadingWeek)return;
     isDragging.current = true;
     dragVisited.current=new Set([key]);
-    dragMode.current = (paintTool==='BUSY'?busyPaint:userAvail).has(key) ? "remove" : "add";
-    paintBlock(key,paintTool,dragMode.current==="add");
+    const currentTool=entryStyle==='ERASE_BUSY'?'BUSY':paintTool;
+    dragMode.current=(currentTool==='BUSY'?busyPaint:userAvail).has(key)?'remove':'add';
+    paintBlock(key,currentTool,dragMode.current==='add');
     setSelectedBlock(key);
-  }, [userAvail,loadingWeek]);
+  }, [userAvail,busyPaint,paintTool,entryStyle,loadingWeek]);
 
   const handleMouseEnter = useCallback((key: string) => {
     if (!isDragging.current || loadingWeek || dragVisited.current.has(key)) return;
     dragVisited.current.add(key);
-    paintBlock(key,paintTool,dragMode.current==="add");
-  }, [paintTool,loadingWeek]);
+    paintBlock(key,entryStyle==='ERASE_BUSY'?'BUSY':paintTool,dragMode.current==='add');
+  }, [paintTool,entryStyle,loadingWeek]);
   const handlePointerMove = (event:React.PointerEvent<HTMLDivElement>)=>{
     if(!isDragging.current || loadingWeek)return;
     const el=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-slot-key]');
@@ -697,9 +716,15 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
             </div>
 
             <div className="flex flex-wrap gap-3 items-center px-4 py-2" style={{background:"white",borderBottom:"1px solid var(--color-lagoon-100)"}}>
-              <span className="text-xs font-bold">Paint mode:</span>
-              <button type="button" aria-pressed={paintTool==='AVAILABLE'} style={rBtn(paintTool==='AVAILABLE')} onClick={()=>setPaintTool('AVAILABLE')}>Available</button>
-              <button type="button" aria-pressed={paintTool==='BUSY'} style={rBtn(paintTool==='BUSY')} onClick={()=>setPaintTool('BUSY')}>Unavailable</button>
+              <span className="text-xs font-bold">Calendar entry:</span>
+              <button type="button" aria-pressed={entryStyle==='STANDARD'} style={rBtn(entryStyle==='STANDARD')} onClick={()=>setEntryStyle('STANDARD')}>Mark availability</button>
+              <button type="button" aria-pressed={entryStyle==='ERASE_BUSY'} style={rBtn(entryStyle==='ERASE_BUSY')} onClick={()=>setEntryStyle('ERASE_BUSY')}>Start free · erase busy</button>
+              {entryStyle==='STANDARD' && <>
+                <span className="text-xs font-bold">Paint:</span>
+                <button type="button" aria-pressed={paintTool==='AVAILABLE'} style={rBtn(paintTool==='AVAILABLE')} onClick={()=>setPaintTool('AVAILABLE')}>Available</button>
+                <button type="button" aria-pressed={paintTool==='BUSY'} style={rBtn(paintTool==='BUSY')} onClick={()=>setPaintTool('BUSY')}>Unavailable</button>
+              </>}
+              {entryStyle==='ERASE_BUSY' && <span className="text-xs" style={{color:'var(--color-lagoon-400)'}}>White = free · Blue = unavailable. Drag to mark busy; drag again to restore free.</span>}
               <label className="text-xs font-bold" htmlFor="group-calendar-filter">Show group:</label>
               <select id="group-calendar-filter" value={selectedGroupId} onChange={e=>setSelectedGroupId(e.target.value)}
                 className="text-xs p-1.5 rounded-lg border" style={{borderColor:"var(--color-lagoon-200)"}}>
@@ -762,23 +787,29 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
                         const isSelected = selectedBlock === key;
 
                         let bg = "white";
-                        if (isBlocked) bg = "#f5b3bd";
-                        else if (isUser) bg = "var(--color-lagoon)";
-                        else if (isBest) bg = "#FFF59D";
-                        else if (fHere.length >= 2) bg = "var(--color-misty-100)";
-                        else if (fHere.length >= 1) bg = "var(--color-sage-50)";
+                        if(entryStyle==='ERASE_BUSY'){
+                          // Same white/lagoon palette as standard mode, but blue
+                          // means the user has erased an unavailable time slot.
+                          bg=isBlocked ? "var(--color-lagoon)" : "white";
+                        }else{
+                          if (isBlocked) bg = "#f5b3bd";
+                          else if (isUser) bg = "var(--color-lagoon)";
+                          else if (isBest) bg = "#FFF59D";
+                          else if (fHere.length >= 2) bg = "var(--color-misty-100)";
+                          else if (fHere.length >= 1) bg = "var(--color-sage-50)";
+                        }
 
                         return (
-                          <div key={key} data-slot-key={key} title={isBlocked?'Unavailable':isUser?'Available':'Unmarked'} className="relative cursor-pointer transition-colors duration-75"
+                          <div key={key} data-slot-key={key} title={isBlocked?'Unavailable':(isUser||entryStyle==='ERASE_BUSY')?'Available':'Unmarked'} className="relative cursor-pointer transition-colors duration-75"
                             style={{ backgroundColor:bg, borderLeft:"1px solid var(--color-lagoon-50)",
                               outline: isSelected ? "2.5px solid var(--color-lagoon-600)" : "none",
                               outlineOffset:"-2px" }}
                             onPointerDown={e=>{if(e.button!==0)return;e.preventDefault();handleMouseDown(key)}}
                             onPointerEnter={() => handleMouseEnter(key)}>
-                            {isBest && !isUser && (
+                            {entryStyle==='STANDARD' && isBest && !isUser && (
                               <span className="absolute" style={{ top:1, right:2, fontSize:8, lineHeight:1, color:"#C4A800" }}>⭐</span>
                             )}
-                            {!isUser && fHere.length > 0 && (
+                            {entryStyle==='STANDARD' && !isUser && fHere.length > 0 && (
                               <div className="absolute flex gap-px" style={{ bottom:2, left:2 }}>
                                 {fHere.map(f => (
                                   <div key={f.id} style={{ width:5, height:5, borderRadius:"50%",
@@ -830,9 +861,9 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
                     <div className="flex items-center justify-between gap-1.5 mt-1">
                       <div className="flex items-center gap-1.5">
                         <div className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: userAvail.has(selectedBlock) ? "#59C2B3" : "#C4B8D8" }} />
+                          style={{ backgroundColor: (userAvail.has(selectedBlock)&&!busyPaint.has(selectedBlock)) ? "#59C2B3" : "#C4B8D8" }} />
                         <span className="text-xs font-medium" style={{ color:"var(--color-misty-400)" }}>
-                          {userAvail.has(selectedBlock) ? "You are available" : "You are not available"}
+                          {(userAvail.has(selectedBlock)&&!busyPaint.has(selectedBlock)) ? "You are available" : "You are not available"}
                         </span>
                       </div>
                       <button
@@ -1027,7 +1058,7 @@ function CalendarTab({ friends, groups, reloadKey, userId }: { friends: Friend[]
                     <span className="text-xs font-bold">Available</span>
                   </button>
                   <button
-                    onClick={() => {paintBlock(selectedBlock,"AVAILABLE",false);paintBlock(selectedBlock,"BUSY",false)}}
+                    onClick={() => paintBlock(selectedBlock,"BUSY",true)}
                     className="flex-1 flex flex-col items-center gap-1.5 py-4 rounded-xl transition border-2"
                     style={{
                       backgroundColor: !userAvail.has(selectedBlock) ? "#FFD9EF" : "white",

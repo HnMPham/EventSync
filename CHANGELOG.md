@@ -1,3 +1,9 @@
+## v1.0.0-rc.4 (2026-11-25)
+- Optional default-available calendar with unavailable-time eraser; per-browser preference per account.
+- System administrator delete-account and public username discriminator editing APIs and dashboard controls.
+- Add Flyway V7 to preserve audit and attendance history while allowing deletions.
+- Carry forward rc.3 CI fixes.
+
 # Changelog
 
 ## [1.0.0-rc.1] - 2026-11-23

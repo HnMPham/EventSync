@@ -97,3 +97,16 @@ test('group management, calendar overrides and weekly slots use expected routes'
   respond({ id: 'override-1' }); await api.addManualOverride('2030-01-07T09:00:00Z', '2030-01-07T10:00:00Z', 'BUSY');
   assert.deepEqual(JSON.parse(calls[3].options.body).status, 'BUSY');
 });
+
+test('administrator routes require ID-based paths and numeric discriminator request', async () => {
+  const api=createEventSyncApi('https://api.example/api');
+  respond({ id:'target',discriminator:123456 });
+  await api.adminChangeUserNumber('target',123456);
+  assert.equal(calls[0].url,'https://api.example/api/admin/users/target/discriminator');
+  assert.equal(calls[0].options.method,'PUT');
+  assert.deepEqual(JSON.parse(calls[0].options.body),{discriminator:123456});
+  respond({ok:true});
+  await api.adminDeleteUser('target');
+  assert.equal(calls[1].options.method,'DELETE');
+  assert.equal(calls[1].url,'https://api.example/api/admin/users/target');
+});

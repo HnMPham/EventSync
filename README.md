@@ -1,6 +1,6 @@
 # EventSync — group scheduling and shared availability
 
-**Release candidate:** `v1.0.0-rc.3` · Java 21 / Spring Boot 3.5 · React / TypeScript · MySQL 8.4 · Docker Compose / Caddy
+**Release candidate:** `v1.0.0-rc.4` · Java 21 / Spring Boot 3.5 · React / TypeScript · MySQL 8.4 · Docker Compose / Caddy
 
 EventSync helps friends and groups coordinate meetings. Participants share availability, explore ranked meeting-time suggestions, respond to invitations, and view finalized meetings on their EventSync calendars. Outlook calendar import is optional and requires Microsoft Entra credentials.
 
@@ -37,11 +37,11 @@ For the integrated React/Caddy experience, use the quick launcher above or follo
 
 ## Release highlights
 
-- Friends, tagged user handles, groups, meeting invitations, and availability painting
+- Friends, tagged user handles, groups, meeting invitations, and availability painting (standard or opt-in fully-available eraser mode)
 - Ranked meeting-time recommendations across invitees and groups
 - Finalized scheduling events appear in EventSync calendars for the organizer and accepted participants
 - Organizer deletion of cancelled or past scheduling events; cancelled events do not present stale finalized times as active
-- Public events, organization publishers, group attendance insights, and administrative support tickets
+- Public events, organization publishers, group attendance insights, administrative support tickets, and system-admin account deletion / public ID edits
 - Persisted account theme colors and optional Microsoft Graph Outlook integration
 
 **Not included:** Ticketmaster integration. No Microsoft Graph meeting creation is implied by EventSync calendar finalization.
@@ -50,7 +50,7 @@ For the integrated React/Caddy experience, use the quick launcher above or follo
 
 - `figma-source/` — integrated React/TypeScript frontend
 - `src/main/java/com/eventsync/` — Java API, business rules, security and scheduling
-- `src/main/resources/db/migration/` — Flyway schema migrations V1 through V6
+- `src/main/resources/db/migration/` — Flyway schema migrations V1 through V7
 - `frontend/` — standalone API adapter and client tests
 - `compose.yaml`, `compose.caddy.local.yaml`, `Caddyfile.local` — Docker and reverse proxy configuration
 - `Launch-EventSync.{bat,ps1,sh}`, `Stop-EventSync.{bat,ps1,sh}` — local-demo scripts
@@ -75,3 +75,11 @@ The [GitHub Actions workflow](.github/workflows/test.yml) runs Java verification
 - This is a **release candidate** and has not been certified for production/security use.
 
 For HTTPS, persistence and Microsoft Entra details, see [docs/deployment.md](docs/deployment.md). Release-specific details are in [RELEASE_NOTES_v1.0.0-rc.3.md](RELEASE_NOTES_v1.0.0-rc.3.md).
+
+## Availability entry styles (rc.4)
+
+The weekly calendar toolbar offers **Mark availability (standard)** and **Start fully available · erase unavailable**. The latter fills the viewed week with available time (white), then lets you paint Lagoon-blue unavailable blocks; the server stores remaining available blocks and busy overrides. Switching to this mode **changes stored availability for each viewed week**; choose it intentionally. The entry-style preference is saved per account **in the current browser** (localStorage), not synchronized between devices. Standard mode keeps its original colors; erase-first mode uses white for available and Lagoon blue for unavailable.
+
+## System administrator account controls (rc.4)
+
+From **System Administration → User account management**, system administrators can change the public numeric component of `username#000001` (1–999999) and permanently delete another user account. Internal UUIDs cannot be edited. Deleted users' owned meetings, public announcements, and groups are removed; group memberships and other dependent records cascade. Migration V7 anonymizes references to deleted administrators in audit and attendance records. Deletion cannot be undone: **back up the production MySQL database before upgrading or deleting accounts**.

@@ -17,7 +17,8 @@ class AdminController {
     AdminController(Db db){ this.db=db; }
 
     record Summary(long users, long groups, long events, long pendingInvitations) {}
-    record AdminUser(String id,String name,String email,boolean systemAdmin,long groupCount) {}
+    record AdminUser(String id,String name,String email,boolean systemAdmin,long groupCount,String username,long discriminator) {}
+    record ChangeDiscriminator(@NotNull @Min(1) @Max(999999) Long discriminator) {}
     record Member(String id,String name,String email,String role) {}
     record ManagedGroup(String id,String name,String description,String ownerId,String ownerName,
                         List<Member> members,long eventCount) {}
@@ -41,11 +42,46 @@ class AdminController {
     }
     @GetMapping("/users") List<AdminUser> users(Authentication a){
         requireAdmin(a);
-        return db.sql.query("SELECT u.id,u.name,u.email,u.system_admin,COUNT(gm.group_id) AS group_count " +
-            "FROM users u LEFT JOIN group_members gm ON gm.user_id=u.id " +
-            "GROUP BY u.id,u.name,u.email,u.system_admin ORDER BY u.name,u.email",
-            (r,n)->new AdminUser(r.getString(1),r.getString(2),r.getString(3),r.getBoolean(4),r.getLong(5)));
+        return db.sql.query("SELECT u.id,u.name,u.email,u.system_admin,COUNT(gm.group_id) AS group_count,h.username,h.discriminator " +
+            "FROM users u JOIN user_handles h ON h.user_id=u.id LEFT JOIN group_members gm ON gm.user_id=u.id " +
+            "GROUP BY u.id,u.name,u.email,u.system_admin,h.username,h.discriminator ORDER BY u.name,u.email",
+            (r,n)->new AdminUser(r.getString(1),r.getString(2),r.getString(3),r.getBoolean(4),r.getLong(5),r.getString(6),r.getLong(7)));
     }
+    /** Public username#number, never the internal UUID used by foreign keys. */
+    @PutMapping("/users/{id}/discriminator") @Transactional
+    AdminUser changeDiscriminator(Authentication a,@PathVariable String id,@Valid @RequestBody ChangeDiscriminator input){
+        requireAdmin(a);
+        db.user(id);
+        Long newNumber=input.discriminator();
+        Long current=db.sql.queryForObject("SELECT discriminator FROM user_handles WHERE user_id=? FOR UPDATE",Long.class,id);
+        if(!Objects.equals(current,newNumber)) {
+            Integer taken=db.sql.queryForObject("SELECT COUNT(*) FROM user_handles WHERE discriminator=?",Integer.class,newNumber);
+            if(taken!=null && taken>0)throw new ApiException(HttpStatus.CONFLICT,"This public ID number is already in use");
+            db.sql.update("UPDATE user_handles SET discriminator=? WHERE user_id=?",newNumber,id);
+            audit(a,"CHANGE_USER_NUMBER","USER",id);
+        }
+        return users(a).stream().filter(u->u.id().equals(id)).findFirst().orElseThrow(ApiException::missing);
+    }
+
+    /** Permanently removes an account and owned content, without permitting self-deletion. */
+    @DeleteMapping("/users/{id}") @Transactional
+    Map<String,Boolean> deleteUser(Authentication a,@PathVariable String id){
+        requireAdmin(a);
+        if(a.getName().equals(id))throw ApiException.bad("Administrators cannot delete their own account");
+        db.lockUser(id);
+        // Ownership FK is RESTRICT; dependent items must be removed explicitly.
+        // Owned meetings and announcements are deleted; group memberships and
+        // invitations cascade. Groups owned by the user are also removed.
+        db.sql.update("DELETE FROM public_events WHERE created_by=?",id);
+        db.sql.update("DELETE FROM events WHERE organizer_id=?",id);
+        db.sql.update("DELETE FROM event_groups WHERE owner_id=?",id);
+        // Record the action before removing the account. Audit and attendance
+        // author references are SET NULL by migration V7.
+        audit(a,"DELETE_USER","USER",id);
+        db.sql.update("DELETE FROM users WHERE id=?",id);
+        return Map.of("ok",true);
+    }
+
     @GetMapping("/groups") List<ManagedGroup> groups(Authentication a){
         requireAdmin(a);
         return db.sql.queryForList("SELECT id FROM event_groups ORDER BY name,id",String.class)
